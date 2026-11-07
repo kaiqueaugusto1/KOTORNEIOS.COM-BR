@@ -1,0 +1,12 @@
+{
+  "name": "torneio",
+  "version": "1.0.0",
+  "description": "Sistema de torneio mata-mata",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
