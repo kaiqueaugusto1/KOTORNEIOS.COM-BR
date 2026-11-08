@@ -87,6 +87,8 @@ button.b.d{color:var(--warn)}
 input.s.sm{width:2.6em;padding:5px 1px}
 .ws{min-width:1.3em;text-align:center;font:700 1.3rem var(--display)}
 .third{margin-top:22px}
+.dt{font-family:var(--display);text-transform:uppercase;letter-spacing:.05em;font-size:1.5rem;margin:26px 0 10px}
+.games .km{margin:6px 0}
 .pod{margin-left:auto;display:grid;gap:2px;font-weight:600;font-size:.92rem}
 /* duplas */
 .dl{display:grid;gap:8px}
@@ -167,7 +169,7 @@ a.b.p{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)
   <div class="tabs" role="tablist" id="tabs"></div>
 </header>
 <main id="main"></main>
-<footer class="cr"><span>© 2026 <b>Kaique Augusto Soares Ferreira</b>. Todos os direitos reservados.</span><span>Instagram: <a href="https://www.instagram.com/kaiquea_05/" target="_blank" rel="noopener"><b>@kaiquea_05</b></a></span></footer>
+<footer class="cr"><span>© 2026 <b>KOTORNEIOS</b>. Todos os direitos reservados.</span><span>Instagram: <a href="https://www.instagram.com/kaiquea_05/" target="_blank" rel="noopener"><b>@kaiquea_05</b></a></span></footer>
 </div>
 <div id="toast" class="toast" hidden></div>
 
@@ -181,7 +183,8 @@ var UNITS={duplas:{s:'Dupla',p:'Duplas',pl:'duplas'},jogadores:{s:'Jogador',p:'J
 var FASES={
   grupos:{nome:'Grupos e mata-mata',desc:'Fase de grupos, todos contra todos, e depois chave eliminatória com oitavas, quartas, semifinal e final conforme o número de classificados.'},
   direto:{nome:'Só mata-mata',desc:'Chave eliminatória direta. Quando o número de participantes não completa a chave, os melhores cabeças de chave avançam direto.'},
-  pontos:{nome:'Pontos corridos',desc:'Todos contra todos em um grupo único. Vence quem tiver mais vitórias, com o saldo de games como desempate.'}
+  pontos:{nome:'Pontos corridos',desc:'Todos contra todos em um grupo único. Vence quem tiver mais vitórias, com o saldo de games como desempate.'},
+  dupla:{nome:'Dupla eliminatória',desc:'Só é eliminado quem perde duas vezes. Quem perde na chave dos vencedores cai para a repescagem e ainda pode chegar à final. Mais jogos e mais chances para todos.'}
 };
 var env={mode:'',role:'viewer',uid:null,ready:false,forceRO:false,tentative:false};
 var Store=null,IDX={},NAMES={},LIGAS={},userApi=null;
@@ -319,7 +322,10 @@ function writeError(e){
 
 /* ---------- torneio: estado ---------- */
 function U(){return UNITS[(S&&S.unit)||'duplas']}
-function isGrupos(){return S.cfg.fase!=='direto'}
+function isGrupos(){return S.cfg.fase==='grupos'||S.cfg.fase==='pontos'}
+function isDupla(){return S.cfg.fase==='dupla'}
+function gfmt(){return S.cfg.gfmt==='bo3'?'bo3':'um'}
+function kfmt(){return S.cfg.kfmt||(S.cfg.bo3===false?'um':'final3')}
 function isPontos(){return S.cfg.fase==='pontos'}
 function sizesOf(N,ng){var o=[],b=Math.floor(N/ng),r=N%ng;for(var g=0;g<ng;g++)o.push(b+(g<r?1:0));return o}
 function mkDuplas(N,ng,old){
@@ -330,7 +336,7 @@ function mkDuplas(N,ng,old){
 function freshT(o){
   var ng=o.fase==='grupos'?o.ng:1;
   var T={v:4,id:o.id,owner:o.owner,nome:o.nome,mod:o.mod,unit:o.unit,criado:o.criado,
-    cfg:{N:o.N,ng:ng,k:Math.max(1,Math.min(2,Math.floor(o.N/ng))),extra:0,fase:o.fase,cross:true,third:true,bo3:true,seedLeague:true},
+    cfg:{N:o.N,ng:ng,k:Math.max(1,Math.min(2,Math.floor(o.N/ng))),extra:0,fase:o.fase,cross:true,third:true,gfmt:o.gfmt==='bo3'?'bo3':'um',kfmt:['um','final3','bo3'].indexOf(o.kfmt)>=0?o.kfmt:'final3',de2:true,seedLeague:true},
     duplas:[],gm:{},ko:{},roster:{A:'',B:''},draft:null,etapaNome:'',saved:null};
   T.duplas=mkDuplas(o.N,ng,[]);
   return T;
@@ -358,37 +364,55 @@ function GN(){var o=[];for(var i=0;i<S.cfg.ng;i++)o.push(LET[i]);return o}
 function gmKey(g,i){return g+':'+i}
 
 /* ---------- classificação dos grupos ---------- */
+function G3(){return [{a:'',b:''},{a:'',b:''},{a:'',b:''}]}
+function gmGames(key){var x=S.gm[key];return (x&&x.g)?x.g:G3()}
+/* melhor de 3: jogos 1 e 2; o 3º só vale se estiver 1 x 1 */
+function tallyG(g){
+  g=(g||[]).concat(G3()).slice(0,3);
+  var wa=0,wb=0,pa=0,pb=0,i;
+  for(i=0;i<2;i++){if(valid(g[i])){if(+g[i].a>+g[i].b)wa++;else wb++;pa+=+g[i].a;pb+=+g[i].b}}
+  var need3=(wa===1&&wb===1);
+  if(need3&&valid(g[2])){if(+g[2].a>+g[2].b)wa++;else wb++;pa+=+g[2].a;pb+=+g[2].b}
+  return {wa:wa,wb:wb,pa:pa,pb:pb,g:g,need3:need3,done:wa>=2||wb>=2}
+}
+/* resultado de um confronto da fase de grupos, em jogo único ou melhor de 3 */
+function gmRes(key){
+  if(gfmt()==='bo3'){var t=tallyG(gmGames(key));return {done:t.done,wa:t.wa,wb:t.wb,pa:t.pa,pb:t.pb,aw:t.wa>t.wb}}
+  var r=S.gm[key];
+  if(valid(r)){var a=+r.a,b=+r.b;return {done:true,wa:a>b?1:0,wb:a>b?0:1,pa:a,pb:b,aw:a>b}}
+  return {done:false,wa:0,wb:0,pa:0,pb:0,aw:false};
+}
 function standings(g){
-  var ds=groupDuplas(g),pairs=rr(ds.length),m={},res=[];
-  ds.forEach(function(d){m[d.id]={d:d,j:0,v:0,pro:0,con:0,g:g}});
+  var ds=groupDuplas(g),pairs=rr(ds.length),m={},res=[],B3=(gfmt()==='bo3');
+  ds.forEach(function(d){m[d.id]={d:d,j:0,v:0,pro:0,con:0,sg:0,sc:0,g:g}});
   pairs.forEach(function(p,i){
     var A=ds[p[0]],B=ds[p[1]];if(!A||!B)return;
-    var r=S.gm[gmKey(g,i)];if(!valid(r))return;
-    var a=+r.a,b=+r.b;
-    m[A.id].j++;m[B.id].j++;m[A.id].pro+=a;m[A.id].con+=b;m[B.id].pro+=b;m[B.id].con+=a;
-    if(a>b)m[A.id].v++;else m[B.id].v++;
-    res.push({w:a>b?A.id:B.id,l:a>b?B.id:A.id});
+    var r=gmRes(gmKey(g,i));if(!r.done)return;
+    m[A.id].j++;m[B.id].j++;m[A.id].pro+=r.pa;m[A.id].con+=r.pb;m[B.id].pro+=r.pb;m[B.id].con+=r.pa;
+    m[A.id].sg+=r.wa;m[A.id].sc+=r.wb;m[B.id].sg+=r.wb;m[B.id].sc+=r.wa;
+    if(r.aw)m[A.id].v++;else m[B.id].v++;
+    res.push({w:r.aw?A.id:B.id,l:r.aw?B.id:A.id});
   });
-  var rows=ds.map(function(d){var x=m[d.id];x.saldo=x.pro-x.con;return x});
+  var rows=ds.map(function(d){var x=m[d.id];x.saldo=x.pro-x.con;x.ssaldo=B3?x.sg-x.sc:0;return x});
   function h2h(x,y){var r=res.filter(function(z){return (z.w===x.d.id&&z.l===y.d.id)||(z.w===y.d.id&&z.l===x.d.id)})[0];
     if(!r)return 0;return r.w===x.d.id?-1:1}
   rows.sort(function(x,y){
-    return (y.v-x.v)||(y.saldo-x.saldo)||(y.pro-x.pro)||h2h(x,y)||((+x.d.tb||0)-(+y.d.tb||0))||(ds.indexOf(x.d)-ds.indexOf(y.d));
+    return (y.v-x.v)||(y.ssaldo-x.ssaldo)||(y.saldo-x.saldo)||(y.pro-x.pro)||h2h(x,y)||((+x.d.tb||0)-(+y.d.tb||0))||(ds.indexOf(x.d)-ds.indexOf(y.d));
   });
   rows.forEach(function(x,i){
     x.tie=false;
     [rows[i-1],rows[i+1]].forEach(function(o){
-      if(o&&o.v===x.v&&o.saldo===x.saldo&&o.pro===x.pro&&!h2h(x,o)&&(+o.d.tb||0)===(+x.d.tb||0)&&x.j>0)x.tie=true});
+      if(o&&o.v===x.v&&o.ssaldo===x.ssaldo&&o.saldo===x.saldo&&o.pro===x.pro&&!h2h(x,o)&&(+o.d.tb||0)===(+x.d.tb||0)&&x.j>0)x.tie=true});
   });
   return rows;
 }
-function groupDone(g){var n=groupDuplas(g).length;return n>1&&rr(n).every(function(p,i){return valid(S.gm[gmKey(g,i)])})}
+function groupDone(g){var n=groupDuplas(g).length;return n>1&&rr(n).every(function(p,i){return gmRes(gmKey(g,i)).done})}
 function allDone(){return GN().every(function(_,g){return groupDuplas(g).length<2||groupDone(g)})}
-function cmpRow(a,b){return (a.pos-b.pos)||(b.r.v-a.r.v)||(b.r.saldo-a.r.saldo)||(b.r.pro-a.r.pro)||(a.g-b.g)}
+function cmpRow(a,b){return (a.pos-b.pos)||(b.r.v-a.r.v)||((b.r.ssaldo||0)-(a.r.ssaldo||0))||(b.r.saldo-a.r.saldo)||(b.r.pro-a.r.pro)||(a.g-b.g)}
 function qualifiers(){
   var seeds=[];
   if(!isGrupos()){
-    allDuplas().forEach(function(d,i){seeds.push({r:{d:d,v:0,saldo:0,pro:0,j:0,g:-1-i},pos:i,g:-1-i,kind:'s'})});
+    allDuplas().forEach(function(d,i){seeds.push({r:{d:d,v:0,ssaldo:0,saldo:0,pro:0,j:0,g:-1-i},pos:i,g:-1-i,kind:'s'})});
     return seeds;
   }
   var k=+S.cfg.k,cand=[];
@@ -409,12 +433,8 @@ function qualMap(){var m={};if(isPontos())return m;qualifiers().forEach(function
 function nextPow2(n){var s=2;while(s<n)s*=2;return s}
 function seedOrder(n){var s=[1,2];while(s.length<n){var m=s.length*2+1;s=s.flatMap(function(x){return [x,m-x]})}return s}
 function roundName(size){return {2:'Final',4:'Semifinal',8:'Quartas de final',16:'Oitavas de final',32:'16 avos de final',64:'32 avos de final'}[size]||('Fase de '+size)}
-function gamesOf(m){var x=S.ko[m.id];return (x&&x.g)?x.g:[{a:'',b:''},{a:'',b:''},{a:'',b:''}]}
-function tally(m){var g=gamesOf(m),wa=0,wb=0;
-  for(var i=0;i<2;i++){if(valid(g[i])){if(+g[i].a>+g[i].b)wa++;else wb++}}
-  var need3=(wa===1&&wb===1);
-  if(need3&&valid(g[2])){if(+g[2].a>+g[2].b)wa++;else wb++}
-  return {wa:wa,wb:wb,g:g,need3:need3}}
+function gamesOf(m){var x=S.ko[m.id];return (x&&x.g)?x.g:G3()}
+function tally(m){return tallyG(gamesOf(m))}
 function buildBracket(){
   var seeds=qualifiers(),Q=seeds.length;
   if(Q<2)return null;
@@ -428,6 +448,8 @@ function buildBracket(){
   var ng=S.cfg.ng;
   var fixed=isGrupos()&&S.cfg.cross&&k===2&&!(+S.cfg.extra)&&(ng===2||ng===4||ng===8)&&Q===ng*2;
   var rounds=[],r0=[],i;
+  var KF=kfmt();
+  function flag(m,fin){m.bo3=(KF==='bo3')||(KF==='final3'&&fin);return m}
   if(fixed){
     for(var g=0;g<ng;g++){var a=at(g,0),b=at(ng-1-g,1);r0.push({id:'r0m'+g,a:a,b:b,bye:!a||!b})}
   }else{
@@ -442,9 +464,9 @@ function buildBracket(){
       }
     }
   }
+  r0.forEach(function(m){flag(m,size===2)});
   rounds.push({size:size,ms:r0});
   var cur=r0,r=1,sz=size/2;
-  var BO3=(S.cfg.bo3!==false);
   function win(m){
     if(m.bye)return m.a||m.b;
     if(!(m.a&&m.b))return null;
@@ -453,20 +475,94 @@ function buildBracket(){
   function loser(m){var w=win(m);if(!w||m.bye)return null;return w.id===m.a.id?m.b:m.a}
   while(sz>=2){
     var nx=[];
-    for(var q=0;q<sz/2;q++)nx.push({id:'r'+r+'m'+q,a:win(cur[2*q]),b:win(cur[2*q+1]),bye:false});
+    for(var q=0;q<sz/2;q++)nx.push(flag({id:'r'+r+'m'+q,a:win(cur[2*q]),b:win(cur[2*q+1]),bye:false},sz===2));
     rounds.push({size:sz,ms:nx});cur=nx;sz/=2;r++;
   }
-  var fin=cur[0];fin.bo3=BO3;
+  var fin=cur[0];
   var champ=win(fin),third=null;
   if(S.cfg.third!==false&&rounds.length>=2){
     var sm=rounds[rounds.length-2].ms;
-    if(sm.length===2&&!sm[0].bye&&!sm[1].bye)third={id:'third',a:loser(sm[0]),b:loser(sm[1]),bye:false};
+    if(sm.length===2&&!sm[0].bye&&!sm[1].bye)third={id:'third',a:loser(sm[0]),b:loser(sm[1]),bye:false,bo3:KF==='bo3'};
   }
   var B={rounds:rounds,Q:Q,size:size,seeds:seeds,seedIdx:seedIdx,champ:champ,vice:loser(fin),third:third,
     thirdW:third?win(third):null,fourth:third?loser(third):null,win:win,loser:loser,fixed:fixed,
     byes:r0.filter(function(m){return m.bye}).map(function(m){return m.a||m.b})};
   B.rank=computeRanking(B);
   return B;
+}
+
+/* ---------- dupla eliminatória ---------- */
+function buildDE(){
+  var seeds=allDuplas(),N=seeds.length;
+  if(N<3)return null;
+  var P=Math.max(4,nextPow2(N)),k=Math.round(Math.log(P)/Math.LN2),order=seedOrder(P),KF=kfmt(),seedIdx={},r,i;
+  seeds.forEach(function(x,j){seedIdx[x.id]=j});
+  function team(n){var x=seeds[n-1];return x?{id:x.id,name:x.name,tag:'cabeça '+n}:null}
+  function flag(m,fin){m.bo3=(KF==='bo3')||(KF==='final3'&&fin);return m}
+  function mk(id,sa,sb,fin){return flag({id:id,a:sa.t,b:sb.t,av:sa.v,bv:sb.v,bye:sa.v!==sb.v,void:sa.v&&sb.v},fin)}
+  function win(m){
+    if(m.void)return null;
+    if(m.bye)return m.av?m.b:m.a;
+    if(!(m.a&&m.b))return null;
+    if(m.bo3){var t=tally(m);return t.wa>=2?m.a:(t.wb>=2?m.b:null)}
+    var x=S.ko[m.id];if(valid(x))return (+x.a>+x.b)?m.a:m.b;
+    return null;
+  }
+  function lose(m){if(m.void||m.bye)return null;var w=win(m);if(!w)return null;return w.id===m.a.id?m.b:m.a}
+  function sW(m){return m.void?{t:null,v:true}:{t:win(m),v:false}}
+  function sL(m){return (m.bye||m.void)?{t:null,v:true}:{t:lose(m),v:false}}
+  /* chave dos vencedores */
+  var W=[],cur=[];
+  for(i=0;i<P/2;i++){var a=team(order[2*i]),b=team(order[2*i+1]);cur.push(mk('w1m'+i,{t:a,v:!a},{t:b,v:!b},false))}
+  W.push(cur);
+  for(r=2;r<=k;r++){
+    var nx=[];
+    for(i=0;i<cur.length/2;i++)nx.push(mk('w'+r+'m'+i,{t:win(cur[2*i]),v:false},{t:win(cur[2*i+1]),v:false},false));
+    W.push(nx);cur=nx;
+  }
+  /* repescagem: rodadas ímpares juntam sobreviventes; rodadas pares recebem os perdedores dos vencedores */
+  var L=[],R=2*(k-1);
+  for(r=1;r<=R;r++){
+    var j=Math.ceil(r/2),c=P/Math.pow(2,j+1),row=[];
+    for(i=0;i<c;i++){
+      var sa,sb;
+      if(r%2===1){
+        if(j===1){sa=sL(W[0][2*i]);sb=sL(W[0][2*i+1])}
+        else{sa=sW(L[r-2][2*i]);sb=sW(L[r-2][2*i+1])}
+      }else{
+        sa=sW(L[r-2][i]);
+        sb=sL(W[j][(j%2===1)?(c-1-i):i]);
+      }
+      row.push(mk('l'+r+'m'+i,sa,sb,false));
+    }
+    L.push(row);
+  }
+  /* final */
+  var wf=W[k-1][0],lf=L[R-1][0],cW=win(wf),cL=win(lf);
+  var gf1=mk('gf1',{t:cW,v:false},{t:cL,v:false},true),w1=win(gf1),de2=(S.cfg.de2!==false);
+  var need2=!!(de2&&w1&&cL&&w1.id===cL.id);
+  var gf2=need2?mk('gf2',{t:cW,v:false},{t:cL,v:false},true):null;
+  var champ=null,vice=null;
+  if(w1){
+    if(cW&&w1.id===cW.id){champ=cW;vice=cL}
+    else if(!de2){champ=cL;vice=cW}
+    else if(gf2){var w2=win(gf2);if(w2){champ=w2;vice=(cW&&w2.id===cW.id)?cL:cW}}
+  }
+  var rank=null;
+  if(champ){
+    var ord=[],seen={},by={};
+    allDuplas().forEach(function(d){by[d.id]=d});
+    var add=function(t){if(t&&!seen[t.id]){seen[t.id]=1;ord.push(by[t.id])}};
+    add(champ);add(vice);
+    for(var q=R-1;q>=0;q--){
+      var ls=[];L[q].forEach(function(m){var l=lose(m);if(l)ls.push(l)});
+      ls.sort(function(x,y){return seedIdx[x.id]-seedIdx[y.id]});ls.forEach(add);
+    }
+    allDuplas().forEach(add);
+    rank=ord;
+  }
+  return {P:P,k:k,N:N,W:W,L:L,gf1:gf1,gf2:gf2,de2:de2,champ:champ,vice:vice,rank:rank,win:win,lose:lose,seedIdx:seedIdx,
+    byes:W[0].filter(function(m){return m.bye}).map(function(m){return m.a||m.b})};
 }
 function computeRanking(B){
   if(!B.champ)return null;
@@ -493,9 +589,10 @@ function computeRanking(B){
 }
 function finalRank(){
   if(isPontos())return groupDone(0)?standings(0).map(function(r){return r.d}):null;
+  if(isDupla()){var DE=buildDE();return DE?DE.rank:null}
   var B=buildBracket();return B?B.rank:null;
 }
-function hasScores(){return Object.keys(S.gm).some(function(k){return S.gm[k]&&(S.gm[k].a!==''||S.gm[k].b!=='')})||Object.keys(S.ko).length>0}
+function hasScores(){return Object.keys(S.gm).some(function(k){var x=S.gm[k];if(!x)return false;if(x.g)return x.g.some(function(y){return y.a!==''||y.b!==''});return x.a!==''||x.b!==''})||Object.keys(S.ko).length>0}
 function statusOf(){if(S.saved||finalRank())return 'encerrado';return hasScores()?'andamento':'novo'}
 
 /* ---------- liga ---------- */
@@ -618,7 +715,7 @@ function tabOk(t){return !!(S&&t&&tTabs().some(function(x){return x[0]===t}))}
 function defaultTab(){
   var f=S.cfg.fase;
   if(!ro()&&!hasScores()&&!S.duplas.some(function(d){return (d.name||'').trim()}))return 'sorteio';
-  return f==='direto'?'mata':'grupos';
+  return (f==='direto'||f==='dupla')?'mata':'grupos';
 }
 function go(n){
   if(n==='login'){srvLogin();return}
@@ -670,7 +767,7 @@ function render(){
 function renderT(){
   if(!S){main('<p class="hint">Carregando torneio…</p>');return}
   if(!tabOk(view.tab))view.tab=defaultTab();
-  var f={sorteio:renderSorteio,grupos:renderGrupos,mata:isPontos()?renderResultado:renderMata,ajustes:renderAjustes,compartilhar:renderShare}[view.tab]||renderGrupos;
+  var f={sorteio:renderSorteio,grupos:renderGrupos,mata:isPontos()?renderResultado:(isDupla()?renderDupla:renderMata),ajustes:renderAjustes,compartilhar:renderShare}[view.tab]||renderGrupos;
   f();
 }
 
@@ -697,7 +794,7 @@ function renderHome(){
 
 /* ---------- novo torneio ---------- */
 function novoState(){
-  return ui.novo||(ui.novo={nome:'',mod:'Futevôlei',modOutra:'',unit:'duplas',fase:'grupos',N:16,ng:4});
+  return ui.novo||(ui.novo={nome:'',mod:'Futevôlei',modOutra:'',unit:'duplas',fase:'grupos',N:16,ng:4,gfmt:'um',kfmt:'final3'});
 }
 function opts(from,to,sel,fmt){var h='';for(var i=from;i<=to;i++)h+='<option value="'+i+'"'+(i===sel?' selected':'')+'>'+(fmt?fmt(i):i)+'</option>';return h}
 function renderNovo(){
@@ -713,8 +810,15 @@ function renderNovo(){
   Object.keys(FASES).forEach(function(k){
     h+='<label class="opt'+(n.fase===k?' on':'')+'"><input type="radio" name="fase" value="'+k+'" data-nv="fase"'+(n.fase===k?' checked':'')+'><span class="o-t">'+FASES[k].nome+'</span><span class="o-d">'+FASES[k].desc+'</span></label>';
   });
+  h+='</div><div class="dl" style="margin-top:14px">';
+  if(n.fase==='grupos'||n.fase==='pontos')h+='<div class="field"><label for="nv-gfmt" class="fl">Jogos da fase de grupos</label><select id="nv-gfmt" data-nv="gfmt"><option value="um"'+(n.gfmt!=='bo3'?' selected':'')+'>Jogo único</option><option value="bo3"'+(n.gfmt==='bo3'?' selected':'')+'>Melhor de 3 (3º jogo só se 1 × 1)</option></select></div>';
+  if(n.fase!=='pontos')h+='<div class="field"><label for="nv-kfmt" class="fl">'+(n.fase==='dupla'?'Jogos da dupla eliminatória':'Jogos do mata-mata')+'</label><select id="nv-kfmt" data-nv="kfmt">'+kfOpts(n.kfmt,n.fase==='dupla')+'</select></div>';
   h+='</div><div class="row" style="margin-top:14px"><button class="b p" id="criar">Criar torneio</button><button class="b" data-nav="home">Cancelar</button></div></section></div>';
   main(h);
+}
+function kfOpts(sel,dupla){
+  var o=[['um','Jogo único em todas as fases'],['final3',dupla?'Melhor de 3 só nas finais (3º jogo só se 1 × 1)':'Melhor de 3 só na final (3º jogo só se 1 × 1)'],['bo3','Melhor de 3 em todas as fases']];
+  return o.map(function(x){return '<option value="'+x[0]+'"'+(sel===x[0]?' selected':'')+'>'+x[1]+'</option>'}).join('');
 }
 function criarTorneio(src){
   var n=src||novoState();
@@ -723,7 +827,7 @@ function criarTorneio(src){
   var mod=n.mod==='Outra'?((n.modOutra||'').trim()||'Outra'):n.mod;
   var N=+n.N,ng=Math.max(1,Math.min(+n.ng||1,Math.floor(N/2)));
   var id='t'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  var T=freshT({id:id,owner:env.uid,nome:nome,mod:mod,unit:n.unit,fase:n.fase,N:N,ng:ng,criado:today()});
+  var T=freshT({id:id,owner:env.uid,nome:nome,mod:mod,unit:n.unit,fase:n.fase,N:N,ng:ng,gfmt:n.gfmt,kfmt:n.kfmt,criado:today()});
   var keep=S;S=T;var e=entryOf(T);S=keep;
   var cur=(IDX[env.uid]&&IDX[env.uid].t)||[];
   var idxData={t:cur.concat([e])};
@@ -746,14 +850,14 @@ function renderSorteio(){
     h+='<label for="rA" class="lb">'+u.p+' <span class="badge" id="cA">'+A.length+'</span></label><textarea id="rA" rows="10" placeholder="Um nome por linha">'+esc(S.roster.A)+'</textarea>';
   }
   h+='<div class="field" style="margin-top:12px"><label class="chk"><input type="checkbox" id="seedL"'+(S.cfg.seedLeague!==false?' checked':'')+'> Espalhar os melhores da liga: os mais fortes ficam em grupos diferentes</label></div>';
-  h+='<p class="hint" style="margin:10px 0 0">'+(isGrupos()?(isPontos()?'Grupo único, todos contra todos.':'Grupos: <b>'+S.cfg.ng+'</b>. Altere em Ajustes.'):'Formato atual: só mata-mata, sem grupos.')+'</p>';
+  h+='<p class="hint" style="margin:10px 0 0">'+(isGrupos()?(isPontos()?'Grupo único, todos contra todos.':'Grupos: <b>'+S.cfg.ng+'</b>. Altere em Ajustes.'):(isDupla()?'Formato atual: dupla eliminatória, sem grupos. A ordem do sorteio define os cabeças de chave.':'Formato atual: só mata-mata, sem grupos.'))+'</p>';
   h+='<div class="row" style="margin-top:12px"><button class="b p" id="draw">'+(S.draft?'Sortear de novo':'Sortear')+'</button></div></section>';
   h+='<section class="card"><h2>Resultado do sorteio</h2>';
   var D=S.draft;
   if(!D)h+='<p class="hint">O resultado aparece aqui. Você confere e só depois aplica ao torneio.</p>';
   else{
     if(D.sobras.length)h+='<p class="warnbox">Sem par: '+D.sobras.map(esc).join(', ')+'. As duas listas precisam ter o mesmo tamanho para todos jogarem.</p>';
-    if(D.fase==='direto'){
+    if(D.fase==='direto'||D.fase==='dupla'){
       h+='<ol class="dlist">'+D.duplas.map(function(d){return '<li>'+esc(d.name)+(D.seeded&&d.score>0?' <small>'+d.score+' pts na liga</small>':'')+'</li>'}).join('')+'</ol><p class="hint">Ordem = cabeças de chave, da primeira para a última.</p>';
     }else{
       h+='<div class="gp">';
@@ -809,14 +913,46 @@ function applyDraft(){
 }
 
 /* ---------- grupos / tabela ---------- */
+function g3Label(i,n3){return 'Jogo '+(i+1)+' · melhor de 3'+(n3?' · terceiro jogo':' · terceiro jogo só se 1 × 1')}
+/* atualiza o cartão no lugar (placar de partes e vencedor), sem recriar os campos */
+function paintG3(g,i){
+  var box=$('#g3_'+g+'_'+i);if(!box)return;
+  var t=tallyG(gmGames(gmKey(g,i))),tms=box.querySelectorAll('.tm'),ws=box.querySelectorAll('.ws');
+  [[t.wa,t.done&&t.wa>t.wb],[t.wb,t.done&&t.wb>t.wa]].forEach(function(x,k){if(!ws[k])return;ws[k].textContent=x[0];tms[k].classList.toggle('win',!!x[1])});
+  box.querySelector('.id').textContent=g3Label(i,t.need3);
+}
+/* refaz a tela mantendo o cursor no campo em que a pessoa está (ela já pode ter passado para o próximo) */
+function keepFocus(fn){
+  setTimeout(function(){
+    var a=document.activeElement,sel=null;
+    if(a&&a.tagName==='INPUT'&&$('#main').contains(a)){
+      sel='input'+Object.keys(a.dataset).map(function(k){return '[data-'+k.replace(/[A-Z]/g,function(m){return '-'+m.toLowerCase()})+'="'+a.dataset[k]+'"]'}).join('');
+    }
+    fn();
+    if(sel){var n=$(sel);if(n){n.focus();try{n.select()}catch(e){}}}
+  },0);
+}
+function g3Html(g,i,A,B){
+  var D=dis(),t=tallyG(gmGames(gmKey(g,i))),n3=t.need3;
+  var h='<div class="km" id="g3_'+g+'_'+i+'"><div class="id">'+g3Label(i,n3)+'</div>';
+  [['a',A,t.wa,t.done&&t.wa>t.wb],['b',B,t.wb,t.done&&t.wb>t.wa]].forEach(function(x){
+    h+='<div class="tm'+(x[3]?' win':'')+'"><div class="tn">'+esc(x[1].name)+'</div><span class="gs">';
+    for(var q=0;q<(n3?3:2);q++)h+='<input class="s sm" inputmode="numeric" type="text" data-gb="'+g+'" data-i="'+i+'" data-gi="'+q+'" data-s="'+x[0]+'" value="'+esc(t.g[q][x[0]])+'" aria-label="Jogo '+(q+1)+' placar '+esc(x[1].name)+'"'+D+'>';
+    h+='<b class="ws" title="Jogos vencidos">'+x[2]+'</b></span></div>';
+  });
+  return h+'</div>';
+}
 function renderGrupos(){
-  var D=dis(),u=U();
-  var h='<div class="bar"><p>'+(isPontos()?'Todos jogam contra todos. Digite o placar de cada jogo (games). A tabela ordena por vitórias, saldo, games feitos e confronto direto.':'Cada '+u.s.toLowerCase()+' joga contra todos os outros do grupo. Digite o placar de cada jogo (games). Quem se classifica aparece em azul e entra na chave automaticamente. Desempate: vitórias, saldo, games feitos, confronto direto.')+'</p><span class="badge '+(allDone()?'ok':'warn')+'">'+(allDone()?(isPontos()?'Jogos encerrados':'Grupos encerrados'):'Em andamento')+'</span></div><div class="grid">';
+  var D=dis(),u=U(),B3=(gfmt()==='bo3');
+  var how=B3?'Cada jogo é melhor de 3: digite o placar de cada parte (a 3ª só aparece se estiver 1 × 1).':'Digite o placar de cada jogo (games).';
+  var tb=B3?'vitórias, saldo de jogos, saldo de pontos, pontos feitos e confronto direto':'vitórias, saldo, games feitos e confronto direto';
+  var h='<div class="bar"><p>'+(isPontos()?'Todos jogam contra todos. '+how+' A tabela ordena por '+tb+'.':'Cada '+u.s.toLowerCase()+' joga contra todos os outros do grupo. '+how+' Quem se classifica aparece em azul e entra na chave automaticamente. Desempate: '+tb+'.')+'</p><span class="badge '+(allDone()?'ok':'warn')+'">'+(allDone()?(isPontos()?'Jogos encerrados':'Grupos encerrados'):'Em andamento')+'</span></div><div class="grid">';
   GN().forEach(function(n,g){
     var ds=groupDuplas(g),pairs=rr(ds.length);
     h+='<section class="card"><h2>'+(isPontos()?'Classificação':'Grupo '+n)+' <span class="badge '+(groupDone(g)?'ok':'')+'" id="gb'+g+'">'+(groupDone(g)?'Encerrado':'')+'</span></h2><div class="tw" id="st'+g+'"></div><div class="games">';
     pairs.forEach(function(p,i){
       var A=ds[p[0]],B=ds[p[1]],r=S.gm[gmKey(g,i)]||{a:'',b:''};
+      if(B3){h+=g3Html(g,i,A,B);return}
       h+='<div class="gm"><span class="n">Jogo '+(i+1)+'</span><span class="t r" id="ta'+g+'_'+i+'">'+esc(A.name)+'</span><span class="sc"><input class="s" inputmode="numeric" type="text" data-g="'+g+'" data-i="'+i+'" data-s="a" value="'+esc(r.a)+'" aria-label="Placar '+esc(A.name)+'"'+D+'> x <input class="s" inputmode="numeric" type="text" data-g="'+g+'" data-i="'+i+'" data-s="b" value="'+esc(r.b)+'" aria-label="Placar '+esc(B.name)+'"'+D+'></span><span class="t" id="tb'+g+'_'+i+'">'+esc(B.name)+'</span></div>';
     });
     h+='</div></section>';
@@ -825,13 +961,14 @@ function renderGrupos(){
   GN().forEach(function(_,g){paintGroup(g)});
 }
 function paintGroup(g){
-  var rows=standings(g),qm=qualMap();
-  var h='<table><thead><tr><th>#</th><th>'+U().s+'</th><th title="Jogos">J</th><th title="Vitórias">V</th><th title="Games feitos">GP</th><th title="Games sofridos">GC</th><th title="Saldo">SG</th></tr></thead><tbody>';
+  var rows=standings(g),qm=qualMap(),B3=(gfmt()==='bo3');
+  var h='<table><thead><tr><th>#</th><th>'+U().s+'</th><th title="Jogos">J</th><th title="Vitórias">V</th>'+(B3?'<th title="Saldo de jogos (partes ganhas menos perdidas)">SJ</th>':'')+'<th title="'+(B3?'Pontos feitos':'Games feitos')+'">GP</th><th title="'+(B3?'Pontos sofridos':'Games sofridos')+'">GC</th><th title="Saldo">SG</th></tr></thead><tbody>';
   rows.forEach(function(x,i){
     var kd=qm[x.d.id];
-    h+='<tr class="'+(kd==='q'?'q':(kd==='x'?'x':''))+'"><td class="pos">'+(i+1)+'</td><td class="nm">'+esc(x.d.name)+(kd==='x'?'<span class="tie" style="color:var(--muted)">vaga de melhor '+(i+1)+'º</span>':'')+(x.tie?'<span class="tie">empate: ajuste o desempate</span>':'')+'</td><td>'+x.j+'</td><td><b>'+x.v+'</b></td><td>'+x.pro+'</td><td>'+x.con+'</td><td><b>'+(x.saldo>0?'+':'')+x.saldo+'</b></td></tr>'});
+    h+='<tr class="'+(kd==='q'?'q':(kd==='x'?'x':''))+'"><td class="pos">'+(i+1)+'</td><td class="nm">'+esc(x.d.name)+(kd==='x'?'<span class="tie" style="color:var(--muted)">vaga de melhor '+(i+1)+'º</span>':'')+(x.tie?'<span class="tie">empate: ajuste o desempate</span>':'')+'</td><td>'+x.j+'</td><td><b>'+x.v+'</b></td>'+(B3?'<td><b>'+(x.ssaldo>0?'+':'')+x.ssaldo+'</b></td>':'')+'<td>'+x.pro+'</td><td>'+x.con+'</td><td><b>'+(x.saldo>0?'+':'')+x.saldo+'</b></td></tr>'});
   $('#st'+g).innerHTML=h+'</tbody></table>';
   var b=$('#gb'+g);if(b){b.textContent=groupDone(g)?'Encerrado':'';b.className='badge '+(groupDone(g)?'ok':'')}
+  if(B3)return;
   rr(rows.length).forEach(function(p,i){
     var r=S.gm[gmKey(g,i)],ta=$('#ta'+g+'_'+i),tb=$('#tb'+g+'_'+i);if(!ta)return;
     var v=valid(r);ta.className='t r'+(v&&+r.a>+r.b?' w':'');tb.className='t'+(v&&+r.b>+r.a?' w':'');
@@ -884,7 +1021,7 @@ function renderMata(){
     h+='<div class="round"><h3>'+roundName(R.size)+'</h3><div class="matches">';
     R.ms.forEach(function(m,mi){h+=kmHtml(B,m,'Jogo '+(mi+1))});
     h+='</div>';
-    if(ri===B.rounds.length-1&&B.third)h+='<div class="third"><h3>Disputa de 3º lugar</h3>'+kmHtml(B,B.third,'Jogo único')+'</div>';
+    if(ri===B.rounds.length-1&&B.third)h+='<div class="third"><h3>Disputa de 3º lugar</h3>'+kmHtml(B,B.third,'Jogo')+'</div>';
     h+='</div>';
   });
   main(h+'</div>');
@@ -894,7 +1031,7 @@ function kmHtml(B,m,label){
   var h='<div class="km"><div class="id">'+label+(m.bye?' · vaga direta':'')+(m.bo3?' · melhor de 3'+(ready?(n3?' · terceiro jogo':' · terceiro jogo só se 1 × 1'):''):'')+'</div>';
   ['a','b'].forEach(function(sd){
     var t=m[sd],isW=w&&t&&w.id===t.id&&!m.bye;
-    h+='<div class="tm'+(isW?' win':'')+'"><div class="tn'+(t?'':' tbd')+'">'+(t?esc(t.name)+(t.tag?'<small>'+esc(t.tag)+'</small>':''):(m.bye?'Folga':'A definir'))+'</div>';
+    h+='<div class="tm'+(isW?' win':'')+'"><div class="tn'+(t?'':' tbd')+'">'+(t?esc(t.name)+(t.tag?'<small>'+esc(t.tag)+'</small>':''):(((m.av!==undefined)?(sd==='a'?m.av:m.bv):m.bye)?'Folga':'A definir'))+'</div>';
     if(!ready)h+='<span></span>';
     else if(m.bo3){
       h+='<span class="gs">';
@@ -904,6 +1041,34 @@ function kmHtml(B,m,label){
     h+='</div>';
   });
   return h+'</div>';
+}
+
+function renderDupla(){
+  var B=buildDE(),u=U();
+  if(!B){main('<div class="card"><h2>Chave indisponível</h2><p class="hint">A dupla eliminatória precisa de pelo menos 3 participantes.</p></div>');return}
+  var h='<div class="bar"><p>'+B.N+' '+u.pl+' em chave de '+B.P+'. Cada '+u.s.toLowerCase()+' só sai do torneio depois de perder duas vezes: quem perde na chave dos vencedores cai para a repescagem, e quem perde na repescagem é eliminado. O campeão da repescagem enfrenta o campeão dos vencedores na final'+(B.de2?' (se ele vencer a primeira final, há uma segunda final decisiva)':'')+'.';
+  if(B.byes.length)h+=' <b>'+B.byes.length+' vaga'+(B.byes.length>1?'s diretas':' direta')+'</b> na primeira rodada: '+B.byes.map(function(t){return esc(t.name)}).join(', ')+'.';
+  h+=' Não há empate: o placar precisa ter um vencedor.</p><span class="badge '+(B.champ?'ok':'warn')+'">'+(B.champ?'Encerrado':'Em andamento')+'</span></div>';
+  if(B.champ){
+    h+='<div class="champ"><div><span>Campeão</span><br><b>'+esc(B.champ.name)+'</b></div><div class="pod">'+B.rank.slice(1,4).map(function(d,i){return '<span>'+(i+2)+'º lugar: '+esc(d.name)+'</span>'}).join('')+'</div></div>';
+    h+=saveBox(B.rank);
+  }
+  h+='<h2 class="dt">Chave dos vencedores</h2><div class="bracket">';
+  B.W.forEach(function(row,ri){
+    h+='<div class="round"><h3>'+(ri===B.W.length-1?'Final dos vencedores':roundName(B.P/Math.pow(2,ri)))+'</h3><div class="matches">';
+    row.forEach(function(m,mi){h+=kmHtml(B,m,'Jogo '+(mi+1))});
+    h+='</div></div>';
+  });
+  h+='</div><h2 class="dt">Repescagem</h2><div class="bracket">';
+  B.L.forEach(function(row,ri){
+    if(!row.some(function(m){return !m.void}))return;
+    h+='<div class="round"><h3>'+(ri===B.L.length-1?'Final da repescagem':'Repescagem '+(ri+1))+'</h3><div class="matches">';
+    row.forEach(function(m,mi){if(!m.void)h+=kmHtml(B,m,'Jogo '+(mi+1))});
+    h+='</div></div>';
+  });
+  h+='</div><h2 class="dt">Final</h2><div class="bracket"><div class="round"><h3>Final</h3><div class="matches">'+kmHtml(B,B.gf1,'Vencedores × repescagem')+'</div></div>';
+  if(B.de2)h+='<div class="round"><h3>Final decisiva</h3><div class="matches">'+(B.gf2?kmHtml(B,B.gf2,'Segunda final'):'<p class="hint">Só acontece se o campeão da repescagem vencer a primeira final.</p>')+'</div></div>';
+  main(h+'</div>');
 }
 
 /* ---------- compartilhar (WhatsApp) ---------- */
@@ -952,17 +1117,22 @@ function renderAjustes(){
     h+='<div class="field"><label for="extra" class="fl">Vagas extras</label><select id="extra">'+opts(0,c.ng,c.extra,function(i){return i===0?'Nenhuma':(i+' melhor'+(i>1?'es':'')+' '+(c.k+1)+'º'+(i>1?'s':''))})+'</select></div>';
     h+='<div class="field"><label for="cross" class="fl">Cruzamento</label><select id="cross"><option value="1"'+(c.cross?' selected':'')+'>1º × 2º do grupo oposto (4 grupos, 2 por grupo)</option><option value="0"'+(!c.cross?' selected':'')+'>Pela ordem geral de classificação</option></select></div>';
   }
+  if(f==='grupos'||f==='pontos')h+='<div class="field"><label for="gfmt" class="fl">Jogos da fase de grupos</label><select id="gfmt"><option value="um"'+(gfmt()!=='bo3'?' selected':'')+'>Jogo único</option><option value="bo3"'+(gfmt()==='bo3'?' selected':'')+'>Melhor de 3 (3º jogo só se 1 × 1)</option></select></div>';
   if(f!=='pontos'){
-    h+='<div class="field"><label for="third" class="fl">Disputa de 3º lugar</label><select id="third"><option value="1"'+(c.third!==false?' selected':'')+'>Sim</option><option value="0"'+(c.third===false?' selected':'')+'>Não</option></select></div>';
-    h+='<div class="field"><label for="bo3" class="fl">Final</label><select id="bo3"><option value="1"'+(c.bo3!==false?' selected':'')+'>Melhor de 3 (3º jogo só se 1 × 1)</option><option value="0"'+(c.bo3===false?' selected':'')+'>Jogo único</option></select></div>';
+    if(f!=='dupla')h+='<div class="field"><label for="third" class="fl">Disputa de 3º lugar</label><select id="third"><option value="1"'+(c.third!==false?' selected':'')+'>Sim</option><option value="0"'+(c.third===false?' selected':'')+'>Não</option></select></div>';
+    h+='<div class="field"><label for="kfmt" class="fl">'+(f==='dupla'?'Jogos da dupla eliminatória':'Jogos do mata-mata')+'</label><select id="kfmt">'+kfOpts(kfmt(),f==='dupla')+'</select></div>';
+    if(f==='dupla')h+='<div class="field"><label for="de2" class="fl">Final decisiva</label><select id="de2"><option value="1"'+(c.de2!==false?' selected':'')+'>Sim: se o da repescagem vencer a 1ª final, joga uma 2ª</option><option value="0"'+(c.de2===false?' selected':'')+'>Não: final em um só confronto</option></select></div>';
   }
   h+='</div>';
-  if(f!=='pontos'){
+  if(f==='dupla'){
+    var Pd=Math.max(4,nextPow2(Math.max(3,c.N)));
+    h+='<p class="hint" style="margin:12px 0 0">'+c.N+' '+u.pl+' → chave de <b>'+Pd+'</b>'+(Pd>c.N?' com <b>'+(Pd-c.N)+' vaga'+(Pd-c.N>1?'s diretas':' direta')+'</b> para os melhores cabeças':'')+'. Total de jogos: de <b>'+(2*c.N-2)+'</b> a <b>'+(2*c.N-1)+'</b>.</p>';
+  }else if(f!=='pontos'){
     var Q=isGrupos()?(function(){var t=0;sz.forEach(function(n){t+=Math.min(c.k,n)});return t+Math.min(+c.extra||0,sz.filter(function(n){return n>c.k}).length)})():c.N;
     var size=Math.max(2,nextPow2(Math.max(2,Q)));
     h+='<p class="hint" style="margin:12px 0 0">'+c.N+' '+u.pl+(isGrupos()?' em grupos de '+sz.join(', '):'')+' → <b>'+Q+' na chave</b>, começando em <b>'+roundName(size).toLowerCase()+'</b>'+(size>Q?' com <b>'+(size-Q)+' vaga'+(size-Q>1?'s diretas':' direta')+'</b> para os melhores cabeças':'')+'.</p>';
   }
-  h+='<p class="hint" style="margin:8px 0 0">Mudar tipo, quantidade ou grupos redistribui os participantes e apaga os placares. Mudar classificados, cruzamento ou final apaga só o mata-mata.</p></section>';
+  h+='<p class="hint" style="margin:8px 0 0">Mudar tipo, quantidade ou grupos redistribui os participantes e apaga os placares. Mudar o formato dos jogos apaga os placares afetados (grupos e/ou mata-mata). Mudar classificados ou cruzamento apaga só o mata-mata.</p></section>';
   h+='<section class="card"><h2>Zerar</h2><p class="hint">Apaga os placares deste torneio. A liga não é alterada.</p><div class="row" id="rz"><button class="b d" id="r1">Apagar placares</button></div></section>';
   h+='<section class="card"><h2>Excluir torneio</h2><p class="hint">Remove este torneio da lista. Etapas já salvas na liga continuam no histórico.</p><div class="row" id="dz"><button class="b d" id="d1">Excluir torneio</button></div></section>';
   main(h+'</div></div>');
@@ -980,7 +1150,9 @@ function applyCfg(id,val){
   else if(id==='extra'){c.extra=+val;S.ko={}}
   else if(id==='cross'){c.cross=val==='1';S.ko={}}
   else if(id==='third'){c.third=val==='1'}
-  else if(id==='bo3'){c.bo3=val==='1';var Bf=buildBracket();if(Bf)delete S.ko[Bf.rounds[Bf.rounds.length-1].ms[0].id]}
+  else if(id==='gfmt'){c.gfmt=val==='bo3'?'bo3':'um';S.gm={};S.ko={}}
+  else if(id==='kfmt'){c.kfmt=val;S.ko={}}
+  else if(id==='de2'){c.de2=val==='1';delete S.ko.gf2}
   var mx=Math.max.apply(null,sizesOf(c.N,c.ng));if(c.k>mx)c.k=mx;
   if(c.extra>c.ng)c.extra=c.ng;
 }
@@ -1120,7 +1292,7 @@ document.addEventListener('click',function(e){
   else if(id==='savet'){saveEtapa()}
   else if(id==='nextet'){
     var nn=/ \(etapa \d+\)$/.test(S.nome)?S.nome.replace(/\d+\)$/,function(m){return (parseInt(m,10)+1)+')'}):S.nome+' (etapa 2)';
-    criarTorneio({nome:nn,mod:MODS.indexOf(S.mod)>=0?S.mod:'Outra',modOutra:S.mod,unit:S.unit,fase:S.cfg.fase,N:S.cfg.N,ng:S.cfg.ng});
+    criarTorneio({nome:nn,mod:MODS.indexOf(S.mod)>=0?S.mod:'Outra',modOutra:S.mod,unit:S.unit,fase:S.cfg.fase,N:S.cfg.N,ng:S.cfg.ng,gfmt:S.cfg.gfmt,kfmt:kfmt()});
   }
   else if(id==='r1'){$('#rz').innerHTML='<span>Apagar todos os placares?</span><button class="b d" id="r2">Sim, apagar</button><button class="b" id="r3">Cancelar</button>'}
   else if(id==='r2'){S.gm={};S.ko={};S.saved=null;saveT();render();toast('Placares apagados')}
@@ -1141,7 +1313,13 @@ document.addEventListener('input',function(e){
   if(el.id==='shtxt'){ui.shareTxt=el.value;var a=$('#walink');if(a)a.href='https://wa.me/?text='+encodeURIComponent(el.value);return}
   if(d.pt!==undefined){var L=ligaOf(view.uid),val=+el.value||0;if(d.pt==='part')L.part=val;else L.pts[+d.pt]=val;saveLigaSoon(view.uid);return}
   if(!S||ro())return;
-  if(d.g!==undefined){
+  if(d.gb!==undefined){
+    var kb=gmKey(+d.gb,+d.i),rb=S.gm[kb];if(!rb||!rb.g)rb=S.gm[kb]={g:G3()};
+    var gg=rb.g[+d.gi];gg[d.s]=num(el.value);
+    var vb=gg.a===''||gg.b===''||(/^\d+$/.test(gg.a)&&/^\d+$/.test(gg.b)&&gg.a!==gg.b);
+    el.classList.toggle('inv',!vb);
+    saveT();paintGroup(+d.gb);paintG3(+d.gb,+d.i);
+  }else if(d.g!==undefined){
     var k=gmKey(+d.g,+d.i),r=S.gm[k]||(S.gm[k]={a:'',b:''});
     r[d.s]=num(el.value);
     var v=r.a===''||r.b===''||(/^\d+$/.test(r.a)&&/^\d+$/.test(r.b)&&r.a!==r.b);
@@ -1165,6 +1343,18 @@ document.addEventListener('change',function(e){
   if(d.sl){var lv=el.value.trim();try{localStorage.setItem('ko-link',lv)}catch(x){}ui.shareTxt=null;renderShare();return}
   if(el.id==='ligaUid'){view.uid=el.value;ui={};startLiga();render();return}
   if(!S||ro())return;
+  if(d.gb!==undefined){
+    var gx=+d.gb,ix=+d.i,w3=tallyG(gmGames(gmKey(gx,ix))).need3;
+    var have=document.querySelectorAll('input[data-gb="'+gx+'"][data-i="'+ix+'"][data-s="a"]').length;
+    if((w3?3:2)!==have){
+      setTimeout(function(){
+        renderGrupos();
+        var nx=$('input[data-gb="'+gx+'"][data-i="'+ix+'"][data-gi="2"][data-s="a"]');
+        if(w3&&nx)nx.focus();
+      },0);
+    }
+    return;
+  }
   if(d.ko){
     var id=d.ko,r;
     if(d.gi!==undefined){
@@ -1173,12 +1363,12 @@ document.addEventListener('change',function(e){
     }else r=S.ko[id]||(S.ko[id]={a:'',b:''});
     r[d.s]=num(el.value);saveT();
     if(r.a!==''&&r.b!==''&&r.a===r.b)toast('O mata-mata não aceita empate');
-    renderMata();return;
+    keepFocus(function(){(isDupla()?renderDupla:renderMata)()});return;
   }
   if(d.tn){render();renderNav();return}
   if(d.gsel){S.duplas.filter(function(x){return x.id===d.gsel})[0].g=+el.value;restructure();saveT();render();toast('Movido. Placares apagados');return}
   if(el.id==='seedL'){S.cfg.seedLeague=el.checked;saveT();return}
-  if(['fase','N','ng','k','extra','cross','third','bo3'].indexOf(el.id)>=0){
+  if(['fase','N','ng','k','extra','cross','third','gfmt','kfmt','de2'].indexOf(el.id)>=0){
     applyCfg(el.id,el.value);
     if(!tabOk(view.tab))view.tab=defaultTab();
     saveT();render();toast('Formato atualizado');

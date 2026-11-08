@@ -23,6 +23,18 @@ Não precisa mexer no Render nem publicar de novo: criadores são adicionados, t
 - Cada senha precisa ser diferente das outras e da senha do organizador.
 - Depois de 10 senhas erradas, o IP fica bloqueado por 15 minutos.
 
+## Tipos de torneio e formato dos jogos
+
+Na criação do torneio (e depois em **Ajustes**) você escolhe:
+
+- **Tipo:** Grupos e mata-mata, Só mata-mata, Pontos corridos ou **Dupla eliminatória**.
+- **Jogos da fase de grupos:** jogo único (um placar) ou **melhor de 3** (o 3º jogo só aparece se estiver 1 × 1). No melhor de 3 a tabela desempata por vitórias, saldo de jogos, saldo de pontos, pontos feitos e confronto direto.
+- **Jogos do mata-mata:** jogo único, melhor de 3 **só na final** (o padrão de antes) ou melhor de 3 **em todas as fases**.
+
+**Dupla eliminatória:** só sai do torneio quem perde duas vezes. Quem perde na chave dos vencedores cai para a repescagem. O campeão da repescagem enfrenta o campeão dos vencedores na final e, se ele vencer, joga uma segunda final decisiva (dá para desligar em Ajustes). A ordem do sorteio define os cabeças de chave, que ganham as vagas diretas quando o número de participantes não completa a chave.
+
+Mudar o formato dos jogos em um torneio já iniciado apaga os placares afetados.
+
 ## Rodar no seu computador
 
 1. Instale o Node.js (versão LTS): https://nodejs.org
